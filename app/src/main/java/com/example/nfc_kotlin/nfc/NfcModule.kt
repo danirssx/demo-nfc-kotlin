@@ -12,13 +12,32 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.*
+import java.util.concurrent.TimeUnit
 
 class NfcModule(private val activity: Activity) {
     
     private var nfcAdapter: NfcAdapter? = null
     private var isReading = false
     private val JSON = "application/json; charset=utf-8".toMediaType()
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .build()
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    
+    interface NfcCallback {
+        fun onTagDetected(tagInfo: String)
+        fun onApiResponse(success: Boolean, message: String)
+    }
+    
+    private var callback: NfcCallback? = null
+    
+    fun setCallback(callback: NfcCallback) {
+        this.callback = callback
+    }
     
     init {
         nfcAdapter = NfcAdapter.getDefaultAdapter(activity)
@@ -61,33 +80,53 @@ class NfcModule(private val activity: Activity) {
         
         val tag = intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG)
         if (tag != null) {
-            val uid = tag.id.joinToString("") { "%02X".format(it) }
-            Log.d("NfcModule", "NFC Tag detected with UID: $uid")
-            sendTagToApi(uid)
+            val serialNumber = tag.id.joinToString("") { "%02X".format(it) }
+            val tagType = tag.techList.firstOrNull() ?: "Unknown"
+            val currentTime = System.currentTimeMillis()
+            val actualDate = dateFormat.format(Date(currentTime))
+            
+            val tagInfo = "Tag Type: $tagType, Serial: $serialNumber, Time: $actualDate"
+            Log.d("NfcModule", "NFC Tag detected - $tagInfo")
+            
+            // Notify callback immediately
+            callback?.onTagDetected(tagInfo)
+            
+            // Send to API instantly
+            sendTagToApi(serialNumber, tagType, actualDate, currentTime)
         }
     }
     
-    private fun sendTagToApi(uid: String) {
+    private fun sendTagToApi(serialNumber: String, tagType: String, actualDate: String, timestamp: Long) {
         val json = JSONObject().apply {
-            put("uid", uid)
+            put("id", UUID.randomUUID().toString())
+            put("tag_type", tagType)
+            put("serial_number", serialNumber)
+            put("actual_date", actualDate)
+            put("location", "Mobile Device") // You can make this configurable
+            put("timestamp", timestamp)
         }
         
         val body = json.toString().toRequestBody(JSON)
         val request = Request.Builder()
-            .url("http://YOUR_SERVER_IP:3000/api/read")
+            .url("http://localhost:3000/api/read")
             .post(body)
             .build()
             
+        // Execute immediately for instant communication
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("NfcModule", "Failed to send NFC data to API", e)
+                callback?.onApiResponse(false, "API Error: ${e.message}")
             }
             
             override fun onResponse(call: Call, response: Response) {
+                val responseBody = response.body?.string()
                 if (response.isSuccessful) {
-                    Log.d("NfcModule", "Successfully sent NFC data to API")
+                    Log.d("NfcModule", "Successfully sent NFC data to API: $responseBody")
+                    callback?.onApiResponse(true, "Tag sent to API successfully")
                 } else {
                     Log.e("NfcModule", "API request failed with code: ${response.code}")
+                    callback?.onApiResponse(false, "API Error: ${response.code}")
                 }
                 response.close()
             }

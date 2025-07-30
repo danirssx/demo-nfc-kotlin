@@ -50,7 +50,15 @@ android {
 }
 
 dependencies {
-
+    // KTOR Server dependencies
+    implementation("io.ktor:ktor-server-core:2.3.7")
+    implementation("io.ktor:ktor-server-netty:2.3.7")
+    implementation("io.ktor:ktor-server-content-negotiation:2.3.7")
+    implementation("io.ktor:ktor-serialization-gson:2.3.7")
+    implementation("io.ktor:ktor-server-cors:2.3.7")
+    implementation("io.ktor:ktor-server-call-logging:2.3.7")
+    implementation("ch.qos.logback:logback-classic:1.4.12")
+    
     implementation("com.squareup.okhttp3:okhttp:4.11.0")
     implementation("org.json:json:20230227")
     implementation(libs.androidx.core.ktx)
